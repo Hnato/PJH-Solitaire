@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <ApplicationIcon>server\PJH.ico</ApplicationIcon>
+  </PropertyGroup>
+  <Target Name="OrganizePublish" AfterTargets="Publish">
+    <PropertyGroup>
+      <RootDir>$(ProjectDir)</RootDir>
+      <ServerDir>$(ProjectDir)server\</ServerDir>
+    </PropertyGroup>
+    <MakeDir Directories="$(ServerDir)" />
+    <Exec Command="copy /Y &quot;$(PublishDir)$(TargetName).exe&quot; &quot;$(RootDir)$(TargetName).exe&quot;" />
+    <ItemGroup>
+      <FilesToMove Include="$(PublishDir)**\*.*" Exclude="$(PublishDir)$(TargetName).exe" />
+    </ItemGroup>
+    <Copy SourceFiles="@(FilesToMove)" DestinationFolder="$(ServerDir)%(RecursiveDir)" SkipUnchangedFiles="true" />
+    <Delete Files="@(FilesToMove)" />
+    <RemoveDir Directories="$(PublishDir)" />
+  </Target>
+</Project>

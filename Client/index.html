@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <title>PJH Solitaire</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="PJH.png" type="image/x-icon">
+</head>
+<body data-theme="dark">
+  <div class="app ui-shell">
+    <header class="header ui-shell__header">
+      <div class="brand">
+        <img src="PJH.png" alt="PJH" class="logo">
+        <div class="brand-text">
+          <h1>Solitaire PJH</h1>
+        </div>
+      </div>
+      <div class="hud">
+        <div class="hud-item">
+          <span class="label">Czas</span>
+          <span id="hud-time" class="value">00:00</span>
+        </div>
+        <div class="hud-item">
+          <span class="label">Ruchy</span>
+          <span id="hud-moves" class="value">0</span>
+        </div>
+        <div class="hud-item">
+          <span class="label">Najlepszy</span>
+          <span id="hud-best" class="value">brak</span>
+        </div>
+      </div>
+      <div class="controls">
+        <button id="btn-new" class="ui-btn ui-btn--cta">Nowa gra</button>
+        <button id="btn-undo" class="ui-btn ui-btn--primary">Cofnij</button>
+        <button id="btn-redo" class="ui-btn ui-btn--primary">Do przodu</button>
+        <button id="btn-auto" class="ui-btn ui-btn--primary">Auto</button>
+        <button id="btn-options" class="ui-btn ui-btn--secondary">Opcje</button>
+      </div>
+    </header>
+    <main class="main ui-shell__main">
+      <div class="table-area">
+        <div class="table-dim"></div>
+        <div class="solitaire-root">
+          <div class="top-row">
+            <div class="stock-area">
+              <div class="pile pile-stock" title="Dobierz kartę"></div>
+              <div class="pile pile-waste" title="Odrzucone karty"></div>
+            </div>
+            <div class="foundation-area">
+              <div class="pile pile-foundation" data-index="0"></div>
+              <div class="pile pile-foundation" data-index="1"></div>
+              <div class="pile pile-foundation" data-index="2"></div>
+              <div class="pile pile-foundation" data-index="3"></div>
+            </div>
+          </div>
+          <div class="tableau-row">
+            <div class="pile pile-tableau" data-index="0"></div>
+            <div class="pile pile-tableau" data-index="1"></div>
+            <div class="pile pile-tableau" data-index="2"></div>
+            <div class="pile pile-tableau" data-index="3"></div>
+            <div class="pile pile-tableau" data-index="4"></div>
+            <div class="pile pile-tableau" data-index="5"></div>
+            <div class="pile pile-tableau" data-index="6"></div>
+          </div>
+          <div id="hud-message" class="hud-message"></div>
+        </div>
+      </div>
+      <footer class="footer ui-shell__footer">
+        <span>DEV: Hnato</span>
+      </footer>
+    </main>
+  </div>
+  <!-- Pominięto overlay pomocy -->
+  <div class="overlay" id="overlay-options">
+    <div class="overlay-content">
+      <h2>Opcje</h2>
+      <label>
+        <span>Szybkość animacji</span>
+        <select id="opt-speed">
+          <option value="fast">Szybkie</option>
+          <option value="normal" selected>Normalne</option>
+          <option value="slow">Wolne</option>
+        </select>
+      </label>
+      <label>
+        <span>Dźwięk (placeholder)</span>
+        <select id="opt-sound">
+          <option value="on">Włączony</option>
+          <option value="off" selected>Wyłączony</option>
+        </select>
+      </label>
+      <button id="btn-close-options">Zamknij</button>
+    </div>
+  </div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

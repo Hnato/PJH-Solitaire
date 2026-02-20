@@ -1,0 +1,2 @@
+C:\Users\user\Music\PJH\PJH\bin\Release\net8.0\win-x64\publish\PJH.pdb
+C:\Users\user\Music\PJH\PJH\bin\Release\net8.0\win-x64\publish\PJH.exe

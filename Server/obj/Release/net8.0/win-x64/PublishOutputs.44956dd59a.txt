@@ -1,0 +1,4 @@
+C:\Users\user\Music\PJH\PJH\server\bin\Release\net8.0\win-x64\publish\web.config
+C:\Users\user\Music\PJH\PJH\server\bin\Release\net8.0\win-x64\publish\PJH.staticwebassets.endpoints.json
+C:\Users\user\Music\PJH\PJH\server\bin\Release\net8.0\win-x64\publish\PJH.pdb
+C:\Users\user\Music\PJH\PJH\server\bin\Release\net8.0\win-x64\publish\PJH.exe
