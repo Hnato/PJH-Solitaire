@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
@@ -9,6 +9,8 @@
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <ApplicationIcon>server\PJH.ico</ApplicationIcon>
+    <Company>Hnato</Company>
+    <Authors>Hnato</Authors>
   </PropertyGroup>
   <Target Name="OrganizePublish" AfterTargets="Publish">
     <PropertyGroup>

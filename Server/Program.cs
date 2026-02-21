@@ -14,7 +14,6 @@ var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.ConfigureKestrel(options =>
 {
     options.ListenAnyIP(5330);
-    options.ListenLocalhost(5330);
 });
 
 builder.Services.AddCors(options =>
@@ -61,7 +60,9 @@ app.UseExceptionHandler(errorApp =>
 
 app.Use(async (context, next) =>
 {
-    logger.LogInformation("Request {Method} {Path}", context.Request.Method, context.Request.Path);
+    var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+    var host = context.Request.Host.Value;
+    logger.LogInformation("Request {Method} {Path} from {RemoteIp} Host:{Host}", context.Request.Method, context.Request.Path, remoteIp, host);
     await next();
 });
 
@@ -77,7 +78,13 @@ app.UseDefaultFiles(defaultFiles);
 app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = clientProvider,
-    RequestPath = ""
+    RequestPath = "",
+    OnPrepareResponse = ctx =>
+    {
+        ctx.Context.Response.Headers.CacheControl = "no-store, no-cache, must-revalidate, max-age=0";
+        ctx.Context.Response.Headers.Pragma = "no-cache";
+        ctx.Context.Response.Headers.Expires = "0";
+    }
 });
 
 app.MapGet("/api/status", () =>

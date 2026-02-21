@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <title>PJH Solitaire</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <link rel="stylesheet" href="style.css">
   <link rel="icon" href="PJH.png" type="image/x-icon">
 </head>
@@ -71,30 +71,57 @@
       </footer>
     </main>
   </div>
-  <!-- Pominięto overlay pomocy -->
   <div class="overlay" id="overlay-options">
     <div class="overlay-content">
-      <h2>Opcje</h2>
-      <label>
-        <span>Szybkość animacji</span>
-        <select id="opt-speed">
-          <option value="fast">Szybkie</option>
-          <option value="normal" selected>Normalne</option>
-          <option value="slow">Wolne</option>
-        </select>
-      </label>
-      <label>
-        <span>Dźwięk</span>
-        <select id="opt-sound">
-          <option value="on" selected>Włączony</option>
-          <option value="off">Wyłączony</option>
-        </select>
-      </label>
-      <label>
-        <span>Głośność</span>
-        <input id="opt-volume" type="range" min="0" max="1" step="0.1" value="0.9">
-      </label>
-      <button id="btn-close-options">Zamknij</button>
+      <h2 class="options-title">Opcje</h2>
+      <div class="options-body">
+        <div class="options-group">
+          <label class="options-field">
+            <span class="options-label">Szybkość animacji</span>
+            <select id="opt-speed" class="options-control">
+              <option value="fast">Szybkie</option>
+              <option value="normal" selected>Normalne</option>
+              <option value="slow">Wolne</option>
+            </select>
+          </label>
+          <label class="options-field">
+            <span class="options-label">Dźwięk</span>
+            <select id="opt-sound" class="options-control">
+              <option value="on" selected>Włączony</option>
+              <option value="off">Wyłączony</option>
+            </select>
+          </label>
+          <label class="options-field">
+            <span class="options-label">Głośność</span>
+            <input id="opt-volume" class="options-control" type="range" min="0" max="1" step="0.1" value="0.9">
+          </label>
+          <label class="options-field">
+            <span class="options-label">Dźwięk ambient</span>
+            <select id="opt-ambient-enabled" class="options-control">
+              <option value="on" selected>Włączony</option>
+              <option value="off">Wyłączony</option>
+            </select>
+          </label>
+          <label class="options-field">
+            <span class="options-label">Ścieżka ambient</span>
+            <select id="opt-ambient-track" class="options-control">
+              <option value="1">Ambient 1</option>
+              <option value="2">Ambient 2</option>
+            </select>
+          </label>
+          <label class="options-field">
+            <span class="options-label">Głośność ambient</span>
+            <input id="opt-ambient-volume" class="options-control" type="range" min="0" max="1" step="0.1" value="0.4">
+          </label>
+          <label class="options-field options-field-inline">
+            <span class="options-label">Wycisz dźwięk przy starcie</span>
+            <input id="opt-ambient-mute-start" type="checkbox" class="options-control options-control-checkbox">
+          </label>
+        </div>
+        <div class="options-footer">
+          <button id="btn-close-options" class="ui-btn ui-btn--secondary">Zamknij</button>
+        </div>
+      </div>
     </div>
   </div>
   <script type="module" src="app.js"></script>

@@ -195,3 +195,10 @@ C:\Users\user\Music\PJH\PJH\obj\Release\net8.0\win-x64\refint\PJH.dll
 C:\Users\user\Music\PJH\PJH\obj\Release\net8.0\win-x64\PJH.pdb
 C:\Users\user\Music\PJH\PJH\obj\Release\net8.0\win-x64\PJH.genruntimeconfig.cache
 C:\Users\user\Music\PJH\PJH\obj\Release\net8.0\win-x64\ref\PJH.dll
+C:\Users\user\Music\PJH\PJH\Server\obj\Release\net8.0\win-x64\PJH.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\user\Music\PJH\PJH\Server\obj\Release\net8.0\win-x64\PJH.AssemblyInfoInputs.cache
+C:\Users\user\Music\PJH\PJH\Server\obj\Release\net8.0\win-x64\PJH.AssemblyInfo.cs
+C:\Users\user\Music\PJH\PJH\Server\obj\Release\net8.0\win-x64\PJH.csproj.CoreCompileInputs.cache
+C:\Users\user\Music\PJH\PJH\Server\obj\Release\net8.0\win-x64\PJH.dll
+C:\Users\user\Music\PJH\PJH\Server\obj\Release\net8.0\win-x64\refint\PJH.dll
+C:\Users\user\Music\PJH\PJH\Server\obj\Release\net8.0\win-x64\PJH.pdb

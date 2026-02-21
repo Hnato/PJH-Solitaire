@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\user\\Music\\PJH\\PJH\\PJH.csproj": {}
+    "C:\\Users\\user\\Music\\PJH\\PJH\\Server\\PJH.csproj": {}
   },
   "projects": {
-    "C:\\Users\\user\\Music\\PJH\\PJH\\PJH.csproj": {
+    "C:\\Users\\user\\Music\\PJH\\PJH\\Server\\PJH.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\user\\Music\\PJH\\PJH\\PJH.csproj",
+        "projectUniqueName": "C:\\Users\\user\\Music\\PJH\\PJH\\Server\\PJH.csproj",
         "projectName": "PJH",
-        "projectPath": "C:\\Users\\user\\Music\\PJH\\PJH\\PJH.csproj",
+        "projectPath": "C:\\Users\\user\\Music\\PJH\\PJH\\Server\\PJH.csproj",
         "packagesPath": "C:\\Users\\user\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\user\\Music\\PJH\\PJH\\obj\\",
+        "outputPath": "C:\\Users\\user\\Music\\PJH\\PJH\\Server\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\user\\AppData\\Roaming\\NuGet\\NuGet.Config"

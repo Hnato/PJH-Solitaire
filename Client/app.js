@@ -311,22 +311,202 @@ const soundState = {
   dropAudio: null
 };
 
-/**
- * Zwraca skalowaną głośność w zakresie 0–1 dla dźwięków kart.
- * Bazowa wartość 0.9 jest ~30% wyższa niż poprzednie 0.7.
- * @param {number} volume
- * @returns {number}
- */
+const ambientState = {
+  audio: null,
+  enabled: true,
+  track: "1",
+  volume: 0.4,
+  muteOnStartup: false,
+  started: false
+};
+
+const SETTINGS_KEY = "pjh_settings_v1";
+
+function defaultSettings() {
+  return {
+    speed: "normal",
+    soundEnabled: true,
+    soundVolume: 0.9,
+    ambientEnabled: true,
+    ambientTrack: "1",
+    ambientVolume: 0.4,
+    ambientMuteOnStartup: false
+  };
+}
+
+let settingsState = defaultSettings();
+
 function normalizeVolume(volume) {
   const v = Math.min(1, Math.max(0, volume));
   return v;
 }
 
+function validateSettings(data) {
+  if (!data || typeof data !== "object") return false;
+  if (data.speed !== "fast" && data.speed !== "normal" && data.speed !== "slow") return false;
+  if (typeof data.soundEnabled !== "boolean") return false;
+  if (typeof data.soundVolume !== "number") return false;
+  if (typeof data.ambientEnabled !== "boolean") return false;
+  if (data.ambientTrack !== "1" && data.ambientTrack !== "2") return false;
+  if (typeof data.ambientVolume !== "number") return false;
+  if (typeof data.ambientMuteOnStartup !== "boolean") return false;
+  return true;
+}
+
+function readCookie(name) {
+  const all = document.cookie;
+  if (!all) return null;
+  const parts = all.split(";");
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const eqIndex = trimmed.indexOf("=");
+    if (eqIndex === -1) continue;
+    const key = trimmed.slice(0, eqIndex);
+    const value = trimmed.slice(eqIndex + 1);
+    if (key === name) {
+      try {
+        return decodeURIComponent(value);
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+function writeCookie(name, value) {
+  try {
+    const encoded = encodeURIComponent(value);
+    document.cookie = name + "=" + encoded + ";path=/;max-age=31536000";
+  } catch {}
+}
+
+function loadSettings() {
+  let loaded = null;
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (validateSettings(parsed)) loaded = parsed;
+    }
+  } catch {}
+  if (!loaded) {
+    try {
+      const raw = sessionStorage.getItem(SETTINGS_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (validateSettings(parsed)) loaded = parsed;
+      }
+    } catch {}
+  }
+  if (!loaded) {
+    const rawCookie = readCookie(SETTINGS_KEY);
+    if (rawCookie) {
+      try {
+        const parsed = JSON.parse(rawCookie);
+        if (validateSettings(parsed)) loaded = parsed;
+      } catch {}
+    }
+  }
+  if (!loaded) {
+    settingsState = defaultSettings();
+  } else {
+    settingsState = loaded;
+  }
+}
+
+function saveSettings() {
+  const safe = {
+    speed: settingsState.speed === "fast" || settingsState.speed === "slow" ? settingsState.speed : "normal",
+    soundEnabled: !!settingsState.soundEnabled,
+    soundVolume: normalizeVolume(settingsState.soundVolume),
+    ambientEnabled: !!settingsState.ambientEnabled,
+    ambientTrack: settingsState.ambientTrack === "2" ? "2" : "1",
+    ambientVolume: normalizeVolume(settingsState.ambientVolume),
+    ambientMuteOnStartup: !!settingsState.ambientMuteOnStartup
+  };
+  settingsState = safe;
+  const payload = JSON.stringify(safe);
+  try {
+    localStorage.setItem(SETTINGS_KEY, payload);
+  } catch {}
+  try {
+    sessionStorage.setItem(SETTINGS_KEY, payload);
+  } catch {}
+  writeCookie(SETTINGS_KEY, payload);
+}
+
+function ambientUrl() {
+  return "ambient/" + ambientState.track + ".mp3";
+}
+
+function ensureAmbientAudio() {
+  if (ambientState.audio) return;
+  try {
+    const a = new Audio(ambientUrl());
+    a.autoplay = true;
+    a.playsInline = true;
+    a.muted = false;
+    a.loop = true;
+    a.preload = "auto";
+    a.volume = ambientState.volume;
+    ambientState.audio = a;
+  } catch (err) {
+    console.error("Błąd inicjalizacji ambientu", err);
+  }
+}
+
+function applyAmbientSettings() {
+  if (!ambientState.audio) ensureAmbientAudio();
+  const a = ambientState.audio;
+  if (!a) return;
+  const url = ambientUrl();
+  if (!a.src.includes(url)) {
+    a.src = url;
+    a.load();
+  }
+  a.volume = ambientState.volume;
+  if (!ambientState.enabled) {
+    a.pause();
+  }
+}
+
+function startAmbient(fromStartup) {
+  if (!ambientState.enabled) return;
+  if (fromStartup && ambientState.muteOnStartup) return;
+  ensureAmbientAudio();
+  const a = ambientState.audio;
+  if (!a) return;
+  a.volume = ambientState.volume;
+  try {
+    const promise = a.play();
+    if (promise && typeof promise.then === "function") {
+      promise.catch(() => {});
+    }
+    ambientState.started = true;
+  } catch {}
+}
+
+function setupAmbientAutoplayFallback() {
+  if (ambientState.started || !ambientState.enabled) return;
+  let handled = false;
+  function onFirstInteraction() {
+    if (handled) return;
+    handled = true;
+    startAmbient(false);
+    window.removeEventListener("pointerdown", onFirstInteraction);
+    window.removeEventListener("keydown", onFirstInteraction);
+  }
+  window.addEventListener("pointerdown", onFirstInteraction);
+  window.addEventListener("keydown", onFirstInteraction);
+}
+
 function ensureAudioLoaded() {
   if (soundState.dragAudio && soundState.dropAudio) return;
   try {
-    soundState.dragAudio = new Audio("/sfx-card-drag.mp3");
-    soundState.dropAudio = new Audio("/sfx-card-drop.mp3");
+    soundState.dragAudio = new Audio("sfx-card-drag.mp3");
+    soundState.dropAudio = new Audio("sfx-card-drop.mp3");
     soundState.dragAudio.preload = "auto";
     soundState.dropAudio.preload = "auto";
     soundState.dragAudio.volume = soundState.volume;
@@ -379,7 +559,10 @@ function playDropSound() {
 }
 
 function setSoundEnabled(enabled) {
-  soundState.enabled = !!enabled;
+  const value = !!enabled;
+  soundState.enabled = value;
+  settingsState.soundEnabled = value;
+  saveSettings();
 }
 
 function setSoundVolume(volume) {
@@ -387,6 +570,45 @@ function setSoundVolume(volume) {
   soundState.volume = v;
   if (soundState.dragAudio) soundState.dragAudio.volume = v;
   if (soundState.dropAudio) soundState.dropAudio.volume = v;
+   settingsState.soundVolume = v;
+   saveSettings();
+}
+
+function setAmbientEnabled(enabled) {
+  const value = !!enabled;
+  ambientState.enabled = value;
+  settingsState.ambientEnabled = value;
+  saveSettings();
+  applyAmbientSettings();
+  if (ambientState.enabled && !ambientState.started) {
+    startAmbient(false);
+  }
+}
+
+function setAmbientTrack(track) {
+  if (track !== "1" && track !== "2") return;
+  ambientState.track = track;
+  settingsState.ambientTrack = track;
+  saveSettings();
+  applyAmbientSettings();
+  if (ambientState.enabled) {
+    startAmbient(false);
+  }
+}
+
+function setAmbientVolume(volume) {
+  const v = normalizeVolume(volume);
+  ambientState.volume = v;
+  if (ambientState.audio) ambientState.audio.volume = v;
+  settingsState.ambientVolume = v;
+  saveSettings();
+}
+
+function setAmbientMuteOnStartup(muted) {
+  const value = !!muted;
+  ambientState.muteOnStartup = value;
+  settingsState.ambientMuteOnStartup = value;
+  saveSettings();
 }
 
 function clearDropHighlights() {
@@ -646,33 +868,35 @@ function pointerDownCard(e) {
     isDragging: false,
     dropTarget: null
   };
-  for (const el of movingCards) {
+  for (let i = 0; i < movingCards.length; i++) {
+    const el = movingCards[i];
+    const rect = cardRects[i];
+    el.dataset.dragPrevPosition = el.style.position || "";
+    el.dataset.dragPrevLeft = el.style.left || "";
+    el.dataset.dragPrevTop = el.style.top || "";
+    el.dataset.dragPrevTransform = el.style.transform || "";
+    el.dataset.dragPrevPointerEvents = el.style.pointerEvents || "";
+    el.style.position = "fixed";
+    el.style.left = rect.left + "px";
+    el.style.top = rect.top + "px";
+    el.style.pointerEvents = "none";
+    el.style.transform = el.classList.contains("face-down") ? "rotateY(180deg)" : "";
     el.classList.add("dragging");
   }
   window.addEventListener("mousemove", pointerMoveCard);
   window.addEventListener("mouseup", pointerUpCard);
 }
 
-/**
- * FORCE: Ustawia środek karty-anchora dokładnie w miejscu kursora (clientX, clientY),
- * bez żadnych ograniczeń do krawędzi viewportu. Pozostałe karty zachowują
- * względne pozycje względem anchora (stos porusza się jako całość).
- * @param {MouseEvent} e
- */
 function pointerMoveCard(e) {
   if (!dragState) return;
   if (!dragState.isDragging) {
     dragState.isDragging = true;
   }
-  // Oblicz przesunięcie względem środka karty-anchora (pierwsza karta na liście).
   const anchorRect = dragState.cardRects[0];
   const anchorCenterX = anchorRect.left + anchorRect.width / 2;
   const anchorCenterY = anchorRect.top + anchorRect.height / 2;
-  // FORCE: bez clamp – dokładnie pod kursorem.
   const dx = e.clientX - anchorCenterX;
   const dy = e.clientY - anchorCenterY;
-  // Zastosuj to samo przesunięcie do wszystkich przeciąganych kart,
-  // aby stos poruszał się jako jedna grupa.
   for (let i = 0; i < dragState.movingCards.length; i++) {
     const el = dragState.movingCards[i];
     let t = "translate(" + dx + "px," + dy + "px)";
@@ -684,11 +908,6 @@ function pointerMoveCard(e) {
   updateDropHints(e.clientX, e.clientY);
 }
 
-/**
- * Obsługuje podwójne kliknięcie na odkrytej karcie.
- * Wywołuje autoMoveCard, aby przenieść kartę na fundację, jeśli to możliwe.
- * @param {MouseEvent} e
- */
 function pointerDblClickCard(e) {
   if (!game || !board.root) return;
   if (dragState && dragState.isDragging) return;
@@ -709,7 +928,17 @@ function pointerUpCard(e) {
   if (!dragState) return;
   if (!dragState.isDragging) {
     for (const el of dragState.movingCards) {
-      el.classList.remove("dragging");
+    el.classList.remove("dragging");
+      el.style.position = el.dataset.dragPrevPosition || "";
+      el.style.left = el.dataset.dragPrevLeft || "";
+      el.style.top = el.dataset.dragPrevTop || "";
+      el.style.transform = el.dataset.dragPrevTransform || "";
+      el.style.pointerEvents = el.dataset.dragPrevPointerEvents || "";
+      delete el.dataset.dragPrevPosition;
+      delete el.dataset.dragPrevLeft;
+      delete el.dataset.dragPrevTop;
+      delete el.dataset.dragPrevTransform;
+      delete el.dataset.dragPrevPointerEvents;
     }
     clearDropHighlights();
     dragState = null;
@@ -738,6 +967,16 @@ function pointerUpCard(e) {
   }
   for (const el of dragState.movingCards) {
     el.classList.remove("dragging");
+    el.style.position = el.dataset.dragPrevPosition || "";
+    el.style.left = el.dataset.dragPrevLeft || "";
+    el.style.top = el.dataset.dragPrevTop || "";
+    el.style.transform = el.dataset.dragPrevTransform || "";
+    el.style.pointerEvents = el.dataset.dragPrevPointerEvents || "";
+    delete el.dataset.dragPrevPosition;
+    delete el.dataset.dragPrevLeft;
+    delete el.dataset.dragPrevTop;
+    delete el.dataset.dragPrevTransform;
+    delete el.dataset.dragPrevPointerEvents;
   }
   clearDropHighlights();
   dragState = null;
@@ -914,19 +1153,24 @@ function bindUi() {
   const btnResetBest = document.getElementById("btn-reset-best");
   const overlayOptions = document.getElementById("overlay-options");
   const btnCloseOptions = document.getElementById("btn-close-options");
+  const optSpeed = document.getElementById("opt-speed");
   const optSound = document.getElementById("opt-sound");
   const optVolume = document.getElementById("opt-volume");
+  const optAmbientEnabled = document.getElementById("opt-ambient-enabled");
+  const optAmbientTrack = document.getElementById("opt-ambient-track");
+  const optAmbientVolume = document.getElementById("opt-ambient-volume");
+  const optAmbientMuteStart = document.getElementById("opt-ambient-mute-start");
   if (btnNew) btnNew.addEventListener("click", () => {
     if (confirm("Rozpocząć nową grę? Aktualny postęp zostanie utracony.")) newGame();
   });
   if (btnUndo) btnUndo.addEventListener("click", () => {
-    if (confirm("Cofnąć ostatni ruch?")) undo();
+    undo();
   });
   if (btnRedo) btnRedo.addEventListener("click", () => {
-    if (confirm("Powtórzyć następny ruch?")) redo();
+    redo();
   });
   if (btnAuto) btnAuto.addEventListener("click", () => {
-    if (confirm("Uruchomić automatyczne przenoszenie kart (Auto)?")) autoComplete();
+    autoComplete();
   });
   if (btnOptions) btnOptions.addEventListener("click", () => {
     if (overlayOptions) overlayOptions.classList.add("visible");
@@ -941,24 +1185,70 @@ function bindUi() {
     if (e.target === overlayOptions) overlayOptions.classList.remove("visible");
   });
 
+  if (optSpeed) {
+    optSpeed.value = settingsState.speed;
+    optSpeed.addEventListener("change", () => {
+      const value = optSpeed.value;
+      if (value === "fast" || value === "normal" || value === "slow") {
+        settingsState.speed = value;
+        saveSettings();
+      }
+    });
+  }
+
   if (optSound) {
-    setSoundEnabled(optSound.value !== "off");
+    optSound.value = settingsState.soundEnabled ? "on" : "off";
+    setSoundEnabled(settingsState.soundEnabled);
     optSound.addEventListener("change", () => {
       setSoundEnabled(optSound.value !== "off");
     });
   }
 
   if (optVolume) {
-    const initial = parseFloat(optVolume.value);
+    const initial = settingsState.soundVolume;
+    optVolume.value = String(initial);
     if (!Number.isNaN(initial)) setSoundVolume(initial);
     optVolume.addEventListener("input", () => {
       const value = parseFloat(optVolume.value);
       if (!Number.isNaN(value)) setSoundVolume(value);
     });
   }
+  if (optAmbientEnabled) {
+    optAmbientEnabled.value = ambientState.enabled ? "on" : "off";
+    optAmbientEnabled.addEventListener("change", () => {
+      setAmbientEnabled(optAmbientEnabled.value !== "off");
+    });
+  }
+  if (optAmbientTrack) {
+    optAmbientTrack.value = ambientState.track;
+    optAmbientTrack.addEventListener("change", () => {
+      setAmbientTrack(optAmbientTrack.value);
+    });
+  }
+  if (optAmbientVolume) {
+    optAmbientVolume.value = String(ambientState.volume);
+    optAmbientVolume.addEventListener("input", () => {
+      const value = parseFloat(optAmbientVolume.value);
+      if (!Number.isNaN(value)) setAmbientVolume(value);
+    });
+  }
+  if (optAmbientMuteStart) {
+    optAmbientMuteStart.checked = ambientState.muteOnStartup;
+    optAmbientMuteStart.addEventListener("change", () => {
+      setAmbientMuteOnStartup(optAmbientMuteStart.checked);
+    });
+  }
 }
 
 function main() {
+  loadSettings();
+  soundState.enabled = settingsState.soundEnabled;
+  soundState.volume = normalizeVolume(settingsState.soundVolume);
+  ambientState.enabled = settingsState.ambientEnabled;
+  ambientState.track = settingsState.ambientTrack;
+  ambientState.volume = normalizeVolume(settingsState.ambientVolume);
+  ambientState.muteOnStartup = settingsState.ambientMuteOnStartup;
+  saveSettings();
   initSolitaire();
   bindUi();
   try {
@@ -966,6 +1256,9 @@ function main() {
   } catch (e) {
     console.error("Błąd testów logiki:", e);
   }
+  applyAmbientSettings();
+  startAmbient(true);
+  setupAmbientAutoplayFallback();
 }
 
 main();

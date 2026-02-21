@@ -16,6 +16,7 @@
 html,
 body {
   height: 100%;
+  overflow: hidden;
 }
 
 body {
@@ -80,6 +81,17 @@ body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+}
+
+.main.ui-shell__main {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.table-area {
+  height: 100%;
+  overflow: hidden;
 }
 
 .header {
@@ -198,10 +210,9 @@ body {
 }
 
 .card.dragging {
-  /* Wyłącz wygładzanie transformacji podczas przeciągania,
-     żeby nie było „uciekania” karty przez efekt ease. */
   transition: none !important;
   will-change: transform;
+  z-index: 9999;
 }
 
 .card.face-up {
@@ -383,6 +394,103 @@ body {
   width: 90%;
   color: var(--text);
   box-shadow: 0 24px 40px rgba(0, 0, 0, 0.7);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.options-title {
+  margin: 0 0 4px;
+  font-size: 18px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.options-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.options-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.options-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 14px;
+}
+
+.options-field-inline {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.options-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+.options-control {
+  margin-top: 2px;
+}
+
+.options-control[type="range"] {
+  accent-color: var(--gold);
+  width: 100%;
+  background: rgba(0, 0, 0, 0.85);
+  border-radius: 999px;
+  border: 1px solid #fff;
+}
+
+.options-control,
+.options-control select {
+  font-family: inherit;
+}
+
+.options-control-checkbox {
+  width: auto;
+}
+
+.overlay-content select.options-control {
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid #fff;
+  background: linear-gradient(135deg, var(--gold), var(--gold2));
+  color: #000;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.overlay-content select.options-control:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.overlay-content select.options-control:hover {
+  filter: brightness(1.06);
+}
+
+.overlay-content select.options-control:active {
+  filter: brightness(0.96);
+}
+
+.overlay-content select.options-control:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.options-footer {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .hud-item {
@@ -586,7 +694,6 @@ body {
   }
 }
 
-/* --- Global: wszystkie przyciski złote z białą obwódką i czarną czcionką --- */
 button,
 .ui-btn,
 .btn,
