@@ -84,11 +84,15 @@
         </select>
       </label>
       <label>
-        <span>Dźwięk (placeholder)</span>
+        <span>Dźwięk</span>
         <select id="opt-sound">
-          <option value="on">Włączony</option>
-          <option value="off" selected>Wyłączony</option>
+          <option value="on" selected>Włączony</option>
+          <option value="off">Wyłączony</option>
         </select>
+      </label>
+      <label>
+        <span>Głośność</span>
+        <input id="opt-volume" type="range" min="0" max="1" step="0.1" value="0.7">
       </label>
       <button id="btn-close-options">Zamknij</button>
     </div>
