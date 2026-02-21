@@ -306,18 +306,35 @@ let hasShownWin = false;
 
 const soundState = {
   enabled: true,
-  volume: 0.7,
+  volume: 0.9,
   dragAudio: null,
   dropAudio: null
 };
 
+/**
+ * Zwraca skalowaną głośność w zakresie 0–1 dla dźwięków kart.
+ * Bazowa wartość 0.9 jest ~30% wyższa niż poprzednie 0.7.
+ * @param {number} volume
+ * @returns {number}
+ */
+function normalizeVolume(volume) {
+  const v = Math.min(1, Math.max(0, volume));
+  return v;
+}
+
 function ensureAudioLoaded() {
   if (soundState.dragAudio && soundState.dropAudio) return;
   try {
-    soundState.dragAudio = new Audio("./sfx-card-drag.mp3");
-    soundState.dropAudio = new Audio("./sfx-card-drop.mp3");
+    soundState.dragAudio = new Audio("/sfx-card-drag.mp3");
+    soundState.dropAudio = new Audio("/sfx-card-drop.mp3");
+    soundState.dragAudio.preload = "auto";
+    soundState.dropAudio.preload = "auto";
     soundState.dragAudio.volume = soundState.volume;
     soundState.dropAudio.volume = soundState.volume;
+    soundState.dragAudio.muted = false;
+    soundState.dropAudio.muted = false;
+    soundState.dragAudio.load();
+    soundState.dropAudio.load();
     soundState.dragAudio.addEventListener("error", () => {
       console.error("Błąd ładowania sfx-card-drag.mp3", soundState.dragAudio.error);
     });
@@ -333,14 +350,15 @@ function playDragSound() {
   if (!soundState.enabled) return;
   ensureAudioLoaded();
   const a = soundState.dragAudio;
-  if (!a) return;
-  try {
-    a.currentTime = 0;
-    a.play().catch(err => {
-      console.error("Błąd odtwarzania drag", err);
-    });
-  } catch (err) {
-    console.error("Wyjątek przy odtwarzaniu drag", err);
+  if (a) {
+    try {
+      a.currentTime = 0;
+      a.play().catch(err => {
+        console.error("Błąd odtwarzania drag", err);
+      });
+    } catch (err) {
+      console.error("Wyjątek przy odtwarzaniu drag", err);
+    }
   }
 }
 
@@ -348,14 +366,15 @@ function playDropSound() {
   if (!soundState.enabled) return;
   ensureAudioLoaded();
   const a = soundState.dropAudio;
-  if (!a) return;
-  try {
-    a.currentTime = 0;
-    a.play().catch(err => {
-      console.error("Błąd odtwarzania drop", err);
-    });
-  } catch (err) {
-    console.error("Wyjątek przy odtwarzaniu drop", err);
+  if (a) {
+    try {
+      a.currentTime = 0;
+      a.play().catch(err => {
+        console.error("Błąd odtwarzania drop", err);
+      });
+    } catch (err) {
+      console.error("Wyjątek przy odtwarzaniu drop", err);
+    }
   }
 }
 
@@ -364,7 +383,7 @@ function setSoundEnabled(enabled) {
 }
 
 function setSoundVolume(volume) {
-  const v = Math.min(1, Math.max(0, volume));
+  const v = normalizeVolume(volume);
   soundState.volume = v;
   if (soundState.dragAudio) soundState.dragAudio.volume = v;
   if (soundState.dropAudio) soundState.dropAudio.volume = v;
@@ -634,18 +653,28 @@ function pointerDownCard(e) {
   window.addEventListener("mouseup", pointerUpCard);
 }
 
+/**
+ * FORCE: Ustawia środek karty-anchora dokładnie w miejscu kursora (clientX, clientY),
+ * bez żadnych ograniczeń do krawędzi viewportu. Pozostałe karty zachowują
+ * względne pozycje względem anchora (stos porusza się jako całość).
+ * @param {MouseEvent} e
+ */
 function pointerMoveCard(e) {
   if (!dragState) return;
   if (!dragState.isDragging) {
     dragState.isDragging = true;
   }
+  // Oblicz przesunięcie względem środka karty-anchora (pierwsza karta na liście).
+  const anchorRect = dragState.cardRects[0];
+  const anchorCenterX = anchorRect.left + anchorRect.width / 2;
+  const anchorCenterY = anchorRect.top + anchorRect.height / 2;
+  // FORCE: bez clamp – dokładnie pod kursorem.
+  const dx = e.clientX - anchorCenterX;
+  const dy = e.clientY - anchorCenterY;
+  // Zastosuj to samo przesunięcie do wszystkich przeciąganych kart,
+  // aby stos poruszał się jako jedna grupa.
   for (let i = 0; i < dragState.movingCards.length; i++) {
     const el = dragState.movingCards[i];
-    const rect = dragState.cardRects[i];
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
-    const dx = e.clientX - centerX;
-    const dy = e.clientY - centerY;
     let t = "translate(" + dx + "px," + dy + "px)";
     if (el.classList.contains("face-down")) {
       t += " rotateY(180deg)";
@@ -653,6 +682,25 @@ function pointerMoveCard(e) {
     el.style.transform = t;
   }
   updateDropHints(e.clientX, e.clientY);
+}
+
+/**
+ * Obsługuje podwójne kliknięcie na odkrytej karcie.
+ * Wywołuje autoMoveCard, aby przenieść kartę na fundację, jeśli to możliwe.
+ * @param {MouseEvent} e
+ */
+function pointerDblClickCard(e) {
+  if (!game || !board.root) return;
+  if (dragState && dragState.isDragging) return;
+  const target = e.target.closest(".card.face-up");
+  if (!target) return;
+  const cardId = parseInt(target.dataset.id, 10);
+  if (!Number.isFinite(cardId)) return;
+  const moved = game.autoMoveCard(cardId);
+  if (moved) {
+    playDropSound();
+    render();
+  }
 }
 
 function pointerUpCard(e) {
@@ -729,6 +777,7 @@ function setupBoard() {
   board.messageEl = document.getElementById("hud-message");
   board.stock.addEventListener("click", onStockClick);
   board.root.addEventListener("mousedown", pointerDownCard);
+  board.root.addEventListener("dblclick", pointerDblClickCard);
 }
 
 function tickLoop() {
@@ -893,12 +942,15 @@ function bindUi() {
   });
 
   if (optSound) {
+    setSoundEnabled(optSound.value !== "off");
     optSound.addEventListener("change", () => {
       setSoundEnabled(optSound.value !== "off");
     });
   }
 
   if (optVolume) {
+    const initial = parseFloat(optVolume.value);
+    if (!Number.isNaN(initial)) setSoundVolume(initial);
     optVolume.addEventListener("input", () => {
       const value = parseFloat(optVolume.value);
       if (!Number.isNaN(value)) setSoundVolume(value);

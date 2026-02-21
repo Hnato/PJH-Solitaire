@@ -90,6 +90,7 @@ body {
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   position: relative;
   user-select: none;
+  min-height: 65px;
 }
 
 .header * {
@@ -194,6 +195,13 @@ body {
   box-shadow: 0 14px 26px rgba(0, 0, 0, 0.75);
   transform-style: preserve-3d;
   transition: transform 0.28s ease;
+}
+
+.card.dragging {
+  /* Wyłącz wygładzanie transformacji podczas przeciągania,
+     żeby nie było „uciekania” karty przez efekt ease. */
+  transition: none !important;
+  will-change: transform;
 }
 
 .card.face-up {
