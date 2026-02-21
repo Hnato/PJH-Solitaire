@@ -763,3 +763,55 @@ button:disabled,
   cursor:default;
   box-shadow:none;
 }
+
+.fab-sound {
+  position: fixed;
+  right: 20px;
+  bottom: 70px;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  aspect-ratio: 1 / 1;
+  padding: 0;
+  min-width: 0;
+  border: 2px solid currentColor;
+  background: var(--fab-bg, #111);
+  color: var(--fab-fg, #ffd24d);
+  font-size: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.06);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.2s ease;
+  z-index: 1000;
+}
+.fab-sound.state-on {
+  --fab-bg: #111;
+  --fab-fg: #ffd24d;
+}
+.fab-sound.state-off {
+  --fab-bg: #ffd24d;
+  --fab-fg: #000;
+}
+.fab-sound:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.08);
+}
+.fab-sound:active {
+  transform: translateY(0);
+}
+.fab-sound svg {
+  width: 28px;
+  height: 28px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.fab-sound .icon-on { display: none; }
+.fab-sound .icon-off { display: none; }
+.fab-sound.state-on .icon-on { display: block; }
+.fab-sound.state-off .icon-off { display: block; }

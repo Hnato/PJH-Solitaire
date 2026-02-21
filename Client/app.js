@@ -227,17 +227,61 @@ class SolitaireGame {
     for (let i = 0; i < 4; i++) {
       const foundation = s.foundations[i];
       if (this.canPlaceOnFoundation(card, foundation)) {
-        this.pushUndo();
         if (where.type === "waste") {
-          s.waste.pop();
+          this.moveWasteToFoundation(i);
         } else {
-          s.tableau[where.col].pop();
-          const last = s.tableau[where.col][s.tableau[where.col].length - 1];
-          if (last && !last.faceUp) last.faceUp = true;
+          this.moveTableauToFoundation(where.col, i);
         }
-        foundation.push(card);
-        s.moves++;
-        this.checkWin();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  autoMoveSmart(cardId) {
+    const s = this.state;
+    let card = null;
+    let where = null;
+    if (s.waste.length && s.waste[s.waste.length - 1].id === cardId) {
+      card = s.waste[s.waste.length - 1];
+      where = { type: "waste" };
+    }
+    if (!card) {
+      for (let col = 0; col < 7; col++) {
+        const column = s.tableau[col];
+        if (!column.length) continue;
+        const top = column[column.length - 1];
+        if (top.id === cardId && top.faceUp) {
+          card = top;
+          where = { type: "tableau", col };
+          break;
+        }
+      }
+    }
+    if (!card) return false;
+    for (let i = 0; i < 4; i++) {
+      const foundation = s.foundations[i];
+      if (this.canPlaceOnFoundation(card, foundation)) {
+        if (where.type === "waste") {
+          this.moveWasteToFoundation(i);
+        } else {
+          this.moveTableauToFoundation(where.col, i);
+        }
+        return true;
+      }
+    }
+    for (let col = 0; col < 7; col++) {
+      if (where && where.type === "tableau" && where.col === col) continue;
+      const column = s.tableau[col];
+      const target = column[column.length - 1];
+      if (this.canPlaceOnTableau(card, target)) {
+        if (where.type === "waste") {
+          this.moveWasteToTableau(col);
+        } else {
+          const src = s.tableau[where.col];
+          const startIndex = src.length - 1;
+          this.moveTableauToTableau(where.col, col, startIndex);
+        }
         return true;
       }
     }
@@ -265,6 +309,47 @@ class SolitaireGame {
         if (movedSomething) break;
       }
       if (!movedSomething) break;
+    }
+    return changed;
+  }
+
+  autoMoveAces() {
+    const s = this.state;
+    let changed = false;
+    while (true) {
+      let moved = false;
+      if (s.waste.length) {
+        const topWaste = s.waste[s.waste.length - 1];
+        if (topWaste.faceUp && topWaste.value === 1) {
+          for (let f = 0; f < 4; f++) {
+            const foundation = s.foundations[f];
+            if (this.canPlaceOnFoundation(topWaste, foundation)) {
+              this.moveWasteToFoundation(f);
+              moved = true;
+              changed = true;
+              break;
+            }
+          }
+        }
+      }
+      if (moved) continue;
+      for (let col = 0; col < 7; col++) {
+        const column = s.tableau[col];
+        if (!column.length) continue;
+        const top = column[column.length - 1];
+        if (!top.faceUp || top.value !== 1) continue;
+        for (let f = 0; f < 4; f++) {
+          const foundation = s.foundations[f];
+          if (this.canPlaceOnFoundation(top, foundation)) {
+            this.moveTableauToFoundation(col, f);
+            moved = true;
+            changed = true;
+            break;
+          }
+        }
+        if (moved) break;
+      }
+      if (!moved) break;
     }
     return changed;
   }
@@ -304,6 +389,15 @@ let dragState = null;
 const CARD_Y_STEP = 44;
 let hasShownWin = false;
 
+const DRAG_DISTANCE_THRESHOLD_SQ = 196;
+const DOUBLE_CLICK_MS = 260;
+
+function shouldStartDragDistance(state, clientX, clientY) {
+  const dx = clientX - state.startX;
+  const dy = clientY - state.startY;
+  return dx * dx + dy * dy >= DRAG_DISTANCE_THRESHOLD_SQ;
+}
+
 const soundState = {
   enabled: true,
   volume: 0.9,
@@ -320,6 +414,35 @@ const ambientState = {
   started: false,
   autoplayBlocked: false
 };
+
+function showTransientMessage(text) {
+  const el = board.messageEl;
+  if (!el) return;
+  el.textContent = String(text || "");
+  el.classList.add("visible");
+  if (!document.body.classList.contains("win-active")) {
+    setTimeout(() => {
+      if (!document.body.classList.contains("win-active")) {
+        el.classList.remove("visible");
+      }
+    }, 1500);
+  }
+}
+
+function autoMoveAllAces() {
+  if (!game || !game.autoMoveAces) return false;
+  try {
+    const changed = game.autoMoveAces();
+    if (changed) {
+      console.log("AutoAces: przeniesiono asy");
+    }
+    return changed;
+  } catch (err) {
+    console.error("AutoAces: błąd", err);
+    showTransientMessage("Błąd automatycznego przenoszenia asów");
+    return false;
+  }
+}
 
 const SETTINGS_KEY = "pjh_settings_v1";
 
@@ -449,7 +572,7 @@ function ensureAmbientAudio() {
     const a = new Audio(ambientUrl());
     a.autoplay = true;
     a.playsInline = true;
-    a.muted = false;
+    a.muted = true;
     a.loop = true;
     a.preload = "auto";
     a.volume = ambientState.volume;
@@ -486,7 +609,7 @@ function startAmbient(fromStartup) {
   ensureAmbientAudio();
   const a = ambientState.audio;
   if (!a) return;
-  a.volume = ambientState.volume;
+  a.muted = true;
   try {
     const promise = a.play();
     if (promise && typeof promise.then === "function") {
@@ -494,15 +617,22 @@ function startAmbient(fromStartup) {
         .then(() => {
           ambientState.started = true;
           ambientState.autoplayBlocked = false;
+          updateSoundToggleUi();
         })
         .catch(err => {
           ambientState.autoplayBlocked = true;
-          console.error("Błąd odtwarzania ambientu", err && err.name, err && err.message);
+          if (!err || err.name !== "NotAllowedError") {
+            console.error("Błąd odtwarzania ambientu", err && err.name, err && err.message);
+          }
+          updateSoundToggleUi();
         });
     }
     ambientState.started = true;
   } catch (err) {
-    console.error("Wyjątek przy odtwarzaniu ambientu", err);
+    if (!err || err.name !== "NotAllowedError") {
+      console.error("Wyjątek przy odtwarzaniu ambientu", err);
+    }
+    updateSoundToggleUi();
   }
 }
 
@@ -627,6 +757,76 @@ function setAmbientMuteOnStartup(muted) {
   ambientState.muteOnStartup = value;
   settingsState.ambientMuteOnStartup = value;
   saveSettings();
+}
+
+function updateSoundToggleUi() {
+  const btn = document.getElementById("btn-sound-toggle");
+  if (!btn) return;
+  if (!btn.querySelector(".icon-on")) {
+    btn.innerHTML =
+      '<svg class="icon-on" viewBox="0 0 24 24" aria-hidden="true">' +
+      '<path d="M11 5 L6 9 H3 v6 h3 l5 4 V5 Z"></path>' +
+      '<path d="M15.5 8.5a5 5 0 0 1 0 7"></path>' +
+      '<path d="M19 4a9 9 0 0 1 0 16"></path>' +
+      '</svg>' +
+      '<svg class="icon-off" viewBox="0 0 24 24" aria-hidden="true">' +
+      '<path d="M11 5 L6 9 H3 v6 h3 l5 4 V5 Z"></path>' +
+      '<line x1="17" y1="9" x2="23" y2="15"></line>' +
+      '<line x1="23" y1="9" x2="17" y2="15"></line>' +
+      '</svg>';
+  }
+  const a = ambientState.audio;
+  const on = !!(a && !a.muted && !a.paused && ambientState.enabled);
+  btn.classList.toggle("state-on", on);
+  btn.classList.toggle("state-off", !on);
+  btn.setAttribute("aria-label", on ? "Wyłącz dźwięk" : "Włącz dźwięk");
+  btn.title = on ? "Wyłącz dźwięk" : "Włącz dźwięk";
+}
+
+function toggleSoundByFab() {
+  ensureAmbientAudio();
+  const a = ambientState.audio;
+  if (!a) return;
+  if (!ambientState.enabled || a.paused || a.muted) {
+    setAmbientEnabled(true);
+    startAmbient(false);
+    if (ambientState.audio) {
+      ambientState.audio.muted = false;
+      ambientState.audio.volume = ambientState.volume;
+      if (ambientState.audio.play) {
+        ambientState.audio.play().catch(() => {});
+      }
+    }
+  } else {
+    a.muted = true;
+    a.pause();
+    setAmbientEnabled(false);
+  }
+  updateSoundToggleUi();
+}
+
+function ensureSoundFab() {
+  let btn = document.getElementById("btn-sound-toggle");
+  if (!btn) {
+    btn = document.createElement("button");
+    btn.id = "btn-sound-toggle";
+    btn.className = "fab-sound state-off";
+    btn.type = "button";
+    btn.innerHTML =
+      '<svg class="icon-on" viewBox="0 0 24 24" aria-hidden="true">' +
+      '<path d="M11 5 L6 9 H3 v6 h3 l5 4 V5 Z"></path>' +
+      '<path d="M15.5 8.5a5 5 0 0 1 0 7"></path>' +
+      '<path d="M19 4a9 9 0 0 1 0 16"></path>' +
+      '</svg>' +
+      '<svg class="icon-off" viewBox="0 0 24 24" aria-hidden="true">' +
+      '<path d="M11 5 L6 9 H3 v6 h3 l5 4 V5 Z"></path>' +
+      '<line x1="17" y1="9" x2="23" y2="15"></line>' +
+      '<line x1="23" y1="9" x2="17" y2="15"></line>' +
+      '</svg>';
+    btn.setAttribute("aria-label", "Włącz dźwięk");
+    btn.title = "Włącz dźwięk";
+    document.body.appendChild(btn);
+  }
 }
 
 function clearDropHighlights() {
@@ -858,10 +1058,10 @@ function render() {
 
 function pointerDownCard(e) {
   if (e.button !== 0) return;
+  if (e.detail > 1) return;
   e.preventDefault();
   const target = e.target.closest(".card.face-up");
   if (!target) return;
-  playDragSound();
   const cardId = parseInt(target.dataset.id, 10);
   const columnIndex = target.dataset.column ? parseInt(target.dataset.column, 10) : null;
   const indexInColumn = target.dataset.index ? parseInt(target.dataset.index, 10) : null;
@@ -884,23 +1084,11 @@ function pointerDownCard(e) {
     originColumn: columnIndex,
     originIndex: indexInColumn,
     isDragging: false,
-    dropTarget: null
+    dropTarget: null,
+    startX: e.clientX,
+    startY: e.clientY,
+    startTime: Date.now()
   };
-  for (let i = 0; i < movingCards.length; i++) {
-    const el = movingCards[i];
-    const rect = cardRects[i];
-    el.dataset.dragPrevPosition = el.style.position || "";
-    el.dataset.dragPrevLeft = el.style.left || "";
-    el.dataset.dragPrevTop = el.style.top || "";
-    el.dataset.dragPrevTransform = el.style.transform || "";
-    el.dataset.dragPrevPointerEvents = el.style.pointerEvents || "";
-    el.style.position = "fixed";
-    el.style.left = rect.left + "px";
-    el.style.top = rect.top + "px";
-    el.style.pointerEvents = "none";
-    el.style.transform = el.classList.contains("face-down") ? "rotateY(180deg)" : "";
-    el.classList.add("dragging");
-  }
   window.addEventListener("mousemove", pointerMoveCard);
   window.addEventListener("mouseup", pointerUpCard);
 }
@@ -908,7 +1096,30 @@ function pointerDownCard(e) {
 function pointerMoveCard(e) {
   if (!dragState) return;
   if (!dragState.isDragging) {
+    const now = Date.now();
+    if (now - dragState.startTime < DOUBLE_CLICK_MS) {
+      return;
+    }
+    if (!shouldStartDragDistance(dragState, e.clientX, e.clientY)) {
+      return;
+    }
     dragState.isDragging = true;
+    playDragSound();
+    for (let i = 0; i < dragState.movingCards.length; i++) {
+      const el = dragState.movingCards[i];
+      const rect = dragState.cardRects[i];
+      el.dataset.dragPrevPosition = el.style.position || "";
+      el.dataset.dragPrevLeft = el.style.left || "";
+      el.dataset.dragPrevTop = el.style.top || "";
+      el.dataset.dragPrevTransform = el.style.transform || "";
+      el.dataset.dragPrevPointerEvents = el.style.pointerEvents || "";
+      el.style.position = "fixed";
+      el.style.left = rect.left + "px";
+      el.style.top = rect.top + "px";
+      el.style.pointerEvents = "none";
+      el.style.transform = el.classList.contains("face-down") ? "rotateY(180deg)" : "";
+      el.classList.add("dragging");
+    }
   }
   const anchorRect = dragState.cardRects[0];
   const anchorCenterX = anchorRect.left + anchorRect.width / 2;
@@ -932,13 +1143,18 @@ function pointerDblClickCard(e) {
   if (!target) return;
   const cardId = parseInt(target.dataset.id, 10);
   if (!Number.isFinite(cardId)) return;
-  let moved = game.autoMoveCard(cardId);
-  if (!moved) {
-    moved = game.autoComplete();
-  }
-  if (moved) {
+  try {
+    console.log("DblClick: próba autoMove", { cardId });
+    const moved = game.autoMoveSmart(cardId);
+    if (!moved) {
+      console.log("DblClick: brak dozwolonego ruchu dla karty", { cardId });
+      return;
+    }
     playDropSound();
     render();
+  } catch (err) {
+    console.error("DblClick: błąd podczas autoMove", err);
+    showTransientMessage("Błąd przy podwójnym kliknięciu");
   }
 }
 
@@ -1001,6 +1217,9 @@ function pointerUpCard(e) {
   clearDropHighlights();
   dragState = null;
   render();
+  if (autoMoveAllAces()) {
+    render();
+  }
   if (handled) {
     playDropSound();
   }
@@ -1020,8 +1239,13 @@ function pointerUpCard(e) {
 }
 
 function onStockClick() {
-  game.drawCard();
+  if (!game) return;
+  const moved = game.drawCard();
+  if (!moved) return;
   render();
+  if (autoMoveAllAces()) {
+    render();
+  }
 }
 
 function setupBoard() {
@@ -1070,17 +1294,23 @@ function redo() {
 }
 
 function autoComplete() {
-  let changed = false;
-  while (true) {
-    const movedToFoundation = game.autoComplete();
-    let drew = false;
-    if (!movedToFoundation) {
-      drew = game.drawCard();
+  if (!game) return;
+  try {
+    console.log("Auto: start");
+    const changed = game.autoComplete();
+    console.log("Auto: wynik", { changed });
+    if (changed) {
+      render();
+      if (autoMoveAllAces()) {
+        render();
+      }
+    } else {
+      showTransientMessage("Brak automatycznych ruchów");
     }
-    if (!movedToFoundation && !drew) break;
-    changed = true;
+  } catch (err) {
+    console.error("Auto: błąd", err);
+    showTransientMessage("Błąd przy Auto");
   }
-  if (changed) render();
 }
 
 function assert(cond, msg) {
@@ -1172,6 +1402,85 @@ function runTests() {
     g4.state.tableau[0].length === 1 && g4.state.tableau[1].length === 0,
     "Król trafia na pustą kolumnę"
   );
+  const g5 = new SolitaireGame(() => 0.5);
+  g5.state = {
+    deck: [],
+    waste: [],
+    foundations: [[], [], [], []],
+    tableau: [[], [], [], [], [], [], []],
+    moves: 0,
+    startTimestamp: 0,
+    elapsedMs: 0,
+    won: false
+  };
+  const aceHearts = { id: 10, suit: "hearts", value: 1, faceUp: true };
+  g5.state.waste.push(aceHearts);
+  const movedToFoundation = g5.autoMoveCard(aceHearts.id);
+  assert(movedToFoundation, "autoMoveCard powinno przenieść asa z odrzutów na fundament");
+  assert(g5.state.waste.length === 0 && g5.state.foundations[0].length === 1, "As trafia na fundament");
+  const g6 = new SolitaireGame(() => 0.5);
+  g6.state = {
+    deck: [],
+    waste: [],
+    foundations: [[{ id: 20, suit: "spades", value: 1, faceUp: true }], [], [], []],
+    tableau: [[], [], [], [], [], [], []],
+    moves: 0,
+    startTimestamp: 0,
+    elapsedMs: 0,
+    won: false
+  };
+  const twoSpades = { id: 21, suit: "spades", value: 2, faceUp: true };
+  g6.state.tableau[0].push(twoSpades);
+  const autoChanged = g6.autoComplete();
+  assert(autoChanged, "autoComplete powinno wykonać co najmniej jeden ruch");
+  assert(
+    g6.state.tableau[0].length === 0 && g6.state.foundations[0].length === 2,
+    "Dwójka powinna trafić na fundament"
+  );
+  const g7 = new SolitaireGame(() => 0.5);
+  g7.state = {
+    deck: [],
+    waste: [],
+    foundations: [[], [], [], []],
+    tableau: [[], [], [], [], [], [], []],
+    moves: 0,
+    startTimestamp: 0,
+    elapsedMs: 0,
+    won: false
+  };
+  const sixClubs = { id: 30, suit: "clubs", value: 6, faceUp: true };
+  const sevenDiamonds = { id: 31, suit: "diamonds", value: 7, faceUp: true };
+  g7.state.tableau[0].push(sixClubs);
+  g7.state.tableau[1].push(sevenDiamonds);
+  const smartMoved = g7.autoMoveSmart(sixClubs.id);
+  assert(smartMoved, "autoMoveSmart powinno przenieść kartę na poprawną kolumnę");
+  assert(g7.state.tableau[0].length === 0 && g7.state.tableau[1].length === 2, "Karta trafia na docelową kolumnę");
+  const g8 = new SolitaireGame(() => 0.5);
+  g8.state = {
+    deck: [],
+    waste: [],
+    foundations: [[], [], [], []],
+    tableau: [[], [], [], [], [], [], []],
+    moves: 0,
+    startTimestamp: 0,
+    elapsedMs: 0,
+    won: false
+  };
+  const aceSpades = { id: 40, suit: "spades", value: 1, faceUp: true };
+  const aceHearts2 = { id: 41, suit: "hearts", value: 1, faceUp: true };
+  g8.state.waste.push(aceSpades);
+  g8.state.tableau[0].push(aceHearts2);
+  const acesChanged = g8.autoMoveAces();
+  assert(acesChanged, "autoMoveAces powinno przenieść asy na fundamenty");
+  const totalOnFoundations =
+    g8.state.foundations[0].length +
+    g8.state.foundations[1].length +
+    g8.state.foundations[2].length +
+    g8.state.foundations[3].length;
+  assert(totalOnFoundations === 2, "Oba asy powinny zostać przeniesione na fundamenty");
+  const ds = { startX: 100, startY: 100 };
+  assert(!shouldStartDragDistance(ds, 102, 103), "Mały ruch nie powinien startować drag");
+  assert(shouldStartDragDistance(ds, 110, 110), "Duży ruch powinien startować drag");
   const sValid = defaultSettings();
   assert(validateSettings(sValid), "Domyślne ustawienia powinny przejść walidację");
   const sInvalid = { speed: "x", soundEnabled: true, soundVolume: 0.9, ambientEnabled: true, ambientTrack: "3", ambientVolume: 0.4, ambientMuteOnStartup: false };
@@ -1189,13 +1498,13 @@ function runTests() {
     Math.abs(settingsState.ambientVolume - before.ambientVolume) < 1e-6,
     "Głośność ambient powinna zostać przywrócona"
   );
-  console.log("Nie zaglądaj tu :p");
 }
 function bindUi() {
   const btnNew = document.getElementById("btn-new");
   const btnUndo = document.getElementById("btn-undo");
   const btnRedo = document.getElementById("btn-redo");
   const btnAuto = document.getElementById("btn-auto");
+  const btnSoundToggle = document.getElementById("btn-sound-toggle");
   const btnOptions = document.getElementById("btn-options");
   const btnResetBest = document.getElementById("btn-reset-best");
   const overlayOptions = document.getElementById("overlay-options");
@@ -1219,6 +1528,12 @@ function bindUi() {
   if (btnAuto) btnAuto.addEventListener("click", () => {
     autoComplete();
   });
+  if (btnSoundToggle) {
+    btnSoundToggle.addEventListener("click", () => {
+      toggleSoundByFab();
+    });
+    updateSoundToggleUi();
+  }
   if (btnOptions) btnOptions.addEventListener("click", () => {
     if (overlayOptions) overlayOptions.classList.add("visible");
   });
@@ -1297,7 +1612,9 @@ function main() {
   ambientState.muteOnStartup = settingsState.ambientMuteOnStartup;
   saveSettings();
   initSolitaire();
+  ensureSoundFab();
   bindUi();
+  console.log("Nie zaglądaj tu :p");
   try {
     runTests();
   } catch (e) {
