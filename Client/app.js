@@ -10,7 +10,9 @@ function cloneCard(card) {
     id: card.id,
     suit: card.suit,
     value: card.value,
-    faceUp: card.faceUp
+    faceUp: card.faceUp,
+    active: card.active !== false,
+    movable: card.movable !== false
   };
 }
 
@@ -33,6 +35,8 @@ class SolitaireGame {
     this.state = null;
     this.undoStack = [];
     this.redoStack = [];
+    this.lastErrorCode = null;
+    this.lastErrorContext = null;
     this.newGame();
   }
 
@@ -41,7 +45,7 @@ class SolitaireGame {
     let idCounter = 1;
     for (const suit of Suits) {
       for (const value of Values) {
-        deck.push({ id: idCounter++, suit, value, faceUp: false });
+        deck.push({ id: idCounter++, suit, value, faceUp: false, active: true, movable: true });
       }
     }
     for (let i = deck.length - 1; i > 0; i--) {
@@ -81,8 +85,19 @@ class SolitaireGame {
   }
 
   pushUndo() {
+    this.clearError();
     this.undoStack.push(this.snapshot());
     this.redoStack.length = 0;
+  }
+
+  setError(code, context) {
+    this.lastErrorCode = code;
+    this.lastErrorContext = context || null;
+  }
+
+  clearError() {
+    this.lastErrorCode = null;
+    this.lastErrorContext = null;
   }
 
   undo() {
@@ -127,12 +142,16 @@ class SolitaireGame {
       s.waste = [];
       for (const c of s.deck) c.faceUp = false;
       s.moves++;
+      logOperation("recycle_deck", { from: "waste", to: "deck", deckSize: s.deck.length });
       return true;
     }
     const card = s.deck.pop();
     card.faceUp = true;
+     card.active = true;
+     card.movable = true;
     s.waste.push(card);
     s.moves++;
+    logOperation("draw", { cardId: card.id, from: "deck", to: "waste" });
     return true;
   }
 
@@ -140,6 +159,10 @@ class SolitaireGame {
     const s = this.state;
     if (s.waste.length === 0) return false;
     const card = s.waste[s.waste.length - 1];
+    if (!isCardMovable(card)) {
+      this.setError("locked_move", { cardId: card.id, from: "waste", to: "foundation", foundationIndex });
+      return false;
+    }
     const foundation = s.foundations[foundationIndex];
     if (!this.canPlaceOnFoundation(card, foundation)) return false;
     this.pushUndo();
@@ -147,6 +170,7 @@ class SolitaireGame {
     foundation.push(card);
     s.moves++;
     this.checkWin();
+    logOperation("move_waste_foundation", { cardId: card.id, foundationIndex });
     return true;
   }
 
@@ -154,6 +178,10 @@ class SolitaireGame {
     const s = this.state;
     if (s.waste.length === 0) return false;
     const card = s.waste[s.waste.length - 1];
+    if (!isCardMovable(card)) {
+      this.setError("locked_move", { cardId: card.id, from: "waste", to: "tableau", columnIndex });
+      return false;
+    }
     const column = s.tableau[columnIndex];
     const target = column[column.length - 1];
     if (!this.canPlaceOnTableau(card, target)) return false;
@@ -161,6 +189,7 @@ class SolitaireGame {
     s.waste.pop();
     column.push(card);
     s.moves++;
+    logOperation("move_waste_tableau", { cardId: card.id, columnIndex });
     return true;
   }
 
@@ -169,6 +198,10 @@ class SolitaireGame {
     const column = s.tableau[columnIndex];
     if (column.length === 0) return false;
     const card = column[column.length - 1];
+    if (!isCardMovable(card)) {
+      this.setError("locked_move", { cardId: card.id, from: "tableau", to: "foundation", columnIndex, foundationIndex });
+      return false;
+    }
     if (!card.faceUp) return false;
     const foundation = s.foundations[foundationIndex];
     if (!this.canPlaceOnFoundation(card, foundation)) return false;
@@ -180,6 +213,7 @@ class SolitaireGame {
     }
     s.moves++;
     this.checkWin();
+    logOperation("move_tableau_foundation", { cardId: card.id, columnIndex, foundationIndex });
     return true;
   }
 
@@ -190,6 +224,10 @@ class SolitaireGame {
     if (startIndexInFrom < 0 || startIndexInFrom >= src.length) return false;
     const moving = src.slice(startIndexInFrom);
     if (moving.length === 0) return false;
+    if (!moving.every(isCardMovable)) {
+      this.setError("locked_move", { fromColumn, toColumn, startIndexInFrom });
+      return false;
+    }
     if (!moving[0].faceUp) return false;
     const target = dst[dst.length - 1];
     if (!this.canPlaceOnTableau(moving[0], target)) return false;
@@ -200,158 +238,8 @@ class SolitaireGame {
     if (last && !last.faceUp) last.faceUp = true;
     s.moves++;
     this.checkWin();
+    logOperation("move_tableau_tableau", { fromColumn, toColumn, count: moving.length });
     return true;
-  }
-
-  autoMoveCard(cardId) {
-    const s = this.state;
-    let card = null;
-    let where = null;
-    if (s.waste.length && s.waste[s.waste.length - 1].id === cardId) {
-      card = s.waste[s.waste.length - 1];
-      where = { type: "waste" };
-    }
-    if (!card) {
-      for (let col = 0; col < 7; col++) {
-        const column = s.tableau[col];
-        if (!column.length) continue;
-        const top = column[column.length - 1];
-        if (top.id === cardId && top.faceUp) {
-          card = top;
-          where = { type: "tableau", col };
-          break;
-        }
-      }
-    }
-    if (!card) return false;
-    for (let i = 0; i < 4; i++) {
-      const foundation = s.foundations[i];
-      if (this.canPlaceOnFoundation(card, foundation)) {
-        if (where.type === "waste") {
-          this.moveWasteToFoundation(i);
-        } else {
-          this.moveTableauToFoundation(where.col, i);
-        }
-        return true;
-      }
-    }
-    return false;
-  }
-
-  autoMoveSmart(cardId) {
-    const s = this.state;
-    let card = null;
-    let where = null;
-    if (s.waste.length && s.waste[s.waste.length - 1].id === cardId) {
-      card = s.waste[s.waste.length - 1];
-      where = { type: "waste" };
-    }
-    if (!card) {
-      for (let col = 0; col < 7; col++) {
-        const column = s.tableau[col];
-        if (!column.length) continue;
-        const top = column[column.length - 1];
-        if (top.id === cardId && top.faceUp) {
-          card = top;
-          where = { type: "tableau", col };
-          break;
-        }
-      }
-    }
-    if (!card) return false;
-    for (let i = 0; i < 4; i++) {
-      const foundation = s.foundations[i];
-      if (this.canPlaceOnFoundation(card, foundation)) {
-        if (where.type === "waste") {
-          this.moveWasteToFoundation(i);
-        } else {
-          this.moveTableauToFoundation(where.col, i);
-        }
-        return true;
-      }
-    }
-    for (let col = 0; col < 7; col++) {
-      if (where && where.type === "tableau" && where.col === col) continue;
-      const column = s.tableau[col];
-      const target = column[column.length - 1];
-      if (this.canPlaceOnTableau(card, target)) {
-        if (where.type === "waste") {
-          this.moveWasteToTableau(col);
-        } else {
-          const src = s.tableau[where.col];
-          const startIndex = src.length - 1;
-          this.moveTableauToTableau(where.col, col, startIndex);
-        }
-        return true;
-      }
-    }
-    return false;
-  }
-
-  autoComplete() {
-    let changed = false;
-    while (true) {
-      let movedSomething = false;
-      for (let col = 0; col < 7; col++) {
-        const column = this.state.tableau[col];
-        if (!column.length) continue;
-        const top = column[column.length - 1];
-        if (!top.faceUp) continue;
-        for (let f = 0; f < 4; f++) {
-          const foundation = this.state.foundations[f];
-          if (this.canPlaceOnFoundation(top, foundation)) {
-            this.moveTableauToFoundation(col, f);
-            movedSomething = true;
-            changed = true;
-            break;
-          }
-        }
-        if (movedSomething) break;
-      }
-      if (!movedSomething) break;
-    }
-    return changed;
-  }
-
-  autoMoveAces() {
-    const s = this.state;
-    let changed = false;
-    while (true) {
-      let moved = false;
-      if (s.waste.length) {
-        const topWaste = s.waste[s.waste.length - 1];
-        if (topWaste.faceUp && topWaste.value === 1) {
-          for (let f = 0; f < 4; f++) {
-            const foundation = s.foundations[f];
-            if (this.canPlaceOnFoundation(topWaste, foundation)) {
-              this.moveWasteToFoundation(f);
-              moved = true;
-              changed = true;
-              break;
-            }
-          }
-        }
-      }
-      if (moved) continue;
-      for (let col = 0; col < 7; col++) {
-        const column = s.tableau[col];
-        if (!column.length) continue;
-        const top = column[column.length - 1];
-        if (!top.faceUp || top.value !== 1) continue;
-        for (let f = 0; f < 4; f++) {
-          const foundation = s.foundations[f];
-          if (this.canPlaceOnFoundation(top, foundation)) {
-            this.moveTableauToFoundation(col, f);
-            moved = true;
-            changed = true;
-            break;
-          }
-        }
-        if (moved) break;
-      }
-      if (!moved) break;
-    }
-    return changed;
   }
 
   checkWin() {
@@ -366,6 +254,7 @@ class SolitaireGame {
 
   tick(now) {
     if (!this.state.startTimestamp) return;
+    if (this.state.won) return;
     this.state.elapsedMs = now - this.state.startTimestamp;
   }
 }
@@ -388,9 +277,32 @@ let animationFrameId = null;
 let dragState = null;
 const CARD_Y_STEP = 44;
 let hasShownWin = false;
+let winAnimationOverlay = null;
+let winAnimationTimeoutId = null;
 
-const DRAG_DISTANCE_THRESHOLD_SQ = 196;
-const DOUBLE_CLICK_MS = 260;
+const DRAG_DISTANCE_THRESHOLD_SQ = 2500;
+
+const moveLog = [];
+
+function isCardActive(card) {
+  return !!card && card.active !== false;
+}
+
+function isCardMovable(card) {
+  return !!card && card.movable !== false && isCardActive(card);
+}
+
+function logOperation(kind, payload) {
+  const entry = {
+    ts: Date.now(),
+    kind,
+    ...payload
+  };
+  moveLog.push(entry);
+  if (console && console.debug) {
+    console.debug("MoveLog", entry);
+  }
+}
 
 function shouldStartDragDistance(state, clientX, clientY) {
   const dx = clientX - state.startX;
@@ -429,19 +341,80 @@ function showTransientMessage(text) {
   }
 }
 
-function autoMoveAllAces() {
-  if (!game || !game.autoMoveAces) return false;
-  try {
-    const changed = game.autoMoveAces();
-    if (changed) {
-      console.log("AutoAces: przeniesiono asy");
-    }
-    return changed;
-  } catch (err) {
-    console.error("AutoAces: błąd", err);
-    showTransientMessage("Błąd automatycznego przenoszenia asów");
-    return false;
+function clearWinAnimationOverlay() {
+  if (winAnimationOverlay && winAnimationOverlay.parentNode) {
+    winAnimationOverlay.parentNode.removeChild(winAnimationOverlay);
   }
+  winAnimationOverlay = null;
+}
+
+function startWinAnimations() {
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  if (winAnimationTimeoutId != null) {
+    clearTimeout(winAnimationTimeoutId);
+    winAnimationTimeoutId = null;
+  }
+  clearWinAnimationOverlay();
+  const overlay = document.createElement("div");
+  overlay.className = "win-animations-overlay";
+  document.body.appendChild(overlay);
+  winAnimationOverlay = overlay;
+  const bursts = 6;
+  for (let i = 0; i < bursts; i++) {
+    const firework = document.createElement("div");
+    firework.className = "win-firework";
+    const left = 10 + Math.random() * 80;
+    const top = 20 + Math.random() * 50;
+    firework.style.left = left + "vw";
+    firework.style.top = top + "vh";
+    firework.style.animationDelay = (i * 0.18).toFixed(2) + "s";
+    const particles = 16;
+    for (let j = 0; j < particles; j++) {
+      const p = document.createElement("div");
+      p.className = "win-firework-particle";
+      const angle = (2 * Math.PI * j) / particles;
+      const distance = 40 + Math.random() * 40;
+      const dx = Math.cos(angle) * distance;
+      const dy = Math.sin(angle) * distance;
+      p.style.setProperty("--tx", dx + "px");
+      p.style.setProperty("--ty", dy + "px");
+      const hue = 20 + Math.random() * 60;
+      p.style.setProperty("--hue", String(hue));
+      const delayOffset = Math.random() * 0.2;
+      p.style.animationDelay = (i * 0.18 + delayOffset).toFixed(2) + "s";
+      firework.appendChild(p);
+    }
+    overlay.appendChild(firework);
+  }
+  winAnimationTimeoutId = window.setTimeout(() => {
+    clearWinAnimationOverlay();
+    winAnimationTimeoutId = null;
+  }, 2800);
+}
+
+function stopWinAnimations() {
+  if (winAnimationTimeoutId != null) {
+    clearTimeout(winAnimationTimeoutId);
+    winAnimationTimeoutId = null;
+  }
+  clearWinAnimationOverlay();
+}
+
+function handleWinAfterMove() {
+  if (!game) return;
+  if (!game.state.won || hasShownWin) return;
+  hasShownWin = true;
+  saveBestScore(game.state.moves, game.state.elapsedMs);
+  if (board.messageEl) {
+    board.messageEl.textContent = "Wygrana!";
+    board.messageEl.classList.add("visible");
+    document.body.classList.add("win-active");
+    setTimeout(() => {
+      board.messageEl.classList.remove("visible");
+      document.body.classList.remove("win-active");
+    }, 3000);
+  }
+  startWinAnimations();
 }
 
 const SETTINGS_KEY = "pjh_settings_v1";
@@ -1059,7 +1032,6 @@ function render() {
 function pointerDownCard(e) {
   if (e.button !== 0) return;
   if (e.detail > 1) return;
-  e.preventDefault();
   const target = e.target.closest(".card.face-up");
   if (!target) return;
   const cardId = parseInt(target.dataset.id, 10);
@@ -1087,7 +1059,9 @@ function pointerDownCard(e) {
     dropTarget: null,
     startX: e.clientX,
     startY: e.clientY,
-    startTime: Date.now()
+    startTime: Date.now(),
+    dragOriginX: null,
+    dragOriginY: null
   };
   window.addEventListener("mousemove", pointerMoveCard);
   window.addEventListener("mouseup", pointerUpCard);
@@ -1096,14 +1070,12 @@ function pointerDownCard(e) {
 function pointerMoveCard(e) {
   if (!dragState) return;
   if (!dragState.isDragging) {
-    const now = Date.now();
-    if (now - dragState.startTime < DOUBLE_CLICK_MS) {
-      return;
-    }
     if (!shouldStartDragDistance(dragState, e.clientX, e.clientY)) {
       return;
     }
     dragState.isDragging = true;
+    dragState.dragOriginX = e.clientX;
+    dragState.dragOriginY = e.clientY;
     playDragSound();
     for (let i = 0; i < dragState.movingCards.length; i++) {
       const el = dragState.movingCards[i];
@@ -1117,15 +1089,18 @@ function pointerMoveCard(e) {
       el.style.left = rect.left + "px";
       el.style.top = rect.top + "px";
       el.style.pointerEvents = "none";
-      el.style.transform = el.classList.contains("face-down") ? "rotateY(180deg)" : "";
+      let t = "";
+      if (el.classList.contains("face-down")) {
+        t = "rotateY(180deg)";
+      }
+      el.style.transform = t;
       el.classList.add("dragging");
+      el.classList.add("card-group-selected");
     }
+    return;
   }
-  const anchorRect = dragState.cardRects[0];
-  const anchorCenterX = anchorRect.left + anchorRect.width / 2;
-  const anchorCenterY = anchorRect.top + anchorRect.height / 2;
-  const dx = e.clientX - anchorCenterX;
-  const dy = e.clientY - anchorCenterY;
+  const dx = e.clientX - dragState.dragOriginX;
+  const dy = e.clientY - dragState.dragOriginY;
   for (let i = 0; i < dragState.movingCards.length; i++) {
     const el = dragState.movingCards[i];
     let t = "translate(" + dx + "px," + dy + "px)";
@@ -1137,25 +1112,128 @@ function pointerMoveCard(e) {
   updateDropHints(e.clientX, e.clientY);
 }
 
+function animateCardGroupDrop(movingCards, dropTarget) {
+  if (!dropTarget || !movingCards || !movingCards.length) return;
+  if (typeof document === "undefined" || typeof window === "undefined") return;
+  const pileElement = dropTarget.element;
+  if (!pileElement) return;
+  const pileRect = pileElement.getBoundingClientRect();
+  const clones = [];
+  const baseRects = [];
+  for (let i = 0; i < movingCards.length; i++) {
+    const el = movingCards[i];
+    if (!el || !el.getBoundingClientRect) continue;
+    const rect = el.getBoundingClientRect();
+    const clone = el.cloneNode(true);
+    clone.classList.remove("dragging");
+    clone.classList.remove("card-group-selected");
+    clone.classList.add("card-drop-ghost");
+    clone.style.position = "fixed";
+    clone.style.margin = "0";
+    clone.style.left = rect.left + "px";
+    clone.style.top = rect.top + "px";
+    clone.style.transform = "translate(0px, 0px)";
+    clone.style.opacity = "1";
+    document.body.appendChild(clone);
+    clones.push(clone);
+    baseRects.push(rect);
+  }
+  if (!clones.length) return;
+  window.requestAnimationFrame(() => {
+    for (let i = 0; i < clones.length; i++) {
+      const clone = clones[i];
+      const rect = baseRects[i];
+      let targetX = pileRect.left;
+      let targetY = pileRect.top;
+      if (dropTarget.type === "tableau") {
+        targetY = pileRect.top + i * CARD_Y_STEP;
+      }
+      const dx = targetX - rect.left;
+      const dy = targetY - rect.top;
+      clone.style.transform = "translate(" + dx + "px," + dy + "px)";
+      clone.style.opacity = "0";
+    }
+    window.setTimeout(() => {
+      for (const clone of clones) {
+        if (clone && clone.parentNode) {
+          clone.parentNode.removeChild(clone);
+        }
+      }
+    }, 300);
+  });
+}
+
 function pointerDblClickCard(e) {
-  if (!game || !board.root) return;
+  if (!board.root || !game) return;
   const target = e.target.closest(".card.face-up");
   if (!target) return;
   const cardId = parseInt(target.dataset.id, 10);
-  if (!Number.isFinite(cardId)) return;
-  try {
-    console.log("DblClick: próba autoMove", { cardId });
-    const moved = game.autoMoveSmart(cardId);
-    if (!moved) {
-      console.log("DblClick: brak dozwolonego ruchu dla karty", { cardId });
-      return;
-    }
-    playDropSound();
-    render();
-  } catch (err) {
-    console.error("DblClick: błąd podczas autoMove", err);
-    showTransientMessage("Błąd przy podwójnym kliknięciu");
+  if (!cardId) return;
+  const s = game.state;
+  let originType = null;
+  let originColumn = null;
+  if (target.classList.contains("waste-card")) {
+    if (!s.waste.length) return;
+    const topWaste = s.waste[s.waste.length - 1];
+    if (topWaste.id !== cardId) return;
+    originType = "waste";
+  } else if (target.dataset.column != null && target.dataset.index != null) {
+    const colIndex = parseInt(target.dataset.column, 10);
+    const indexInColumn = parseInt(target.dataset.index, 10);
+    const column = s.tableau[colIndex];
+    if (!column || !column.length) return;
+    if (indexInColumn !== column.length - 1) return;
+    const card = column[indexInColumn];
+    if (!card.faceUp) return;
+    originType = "tableau";
+    originColumn = colIndex;
+  } else {
+    return;
   }
+  let moved = false;
+  if (originType === "waste") {
+    for (let i = 0; i < s.foundations.length; i++) {
+      if (game.moveWasteToFoundation(i)) {
+        moved = true;
+        break;
+      }
+    }
+  } else if (originType === "tableau") {
+    for (let i = 0; i < s.foundations.length; i++) {
+      if (game.moveTableauToFoundation(originColumn, i)) {
+        moved = true;
+        break;
+      }
+    }
+  }
+  if (!moved) {
+    if (originType === "waste") {
+      for (let col = 0; col < s.tableau.length; col++) {
+        if (game.moveWasteToTableau(col)) {
+          moved = true;
+          break;
+        }
+      }
+    } else if (originType === "tableau") {
+      const column = s.tableau[originColumn];
+      const startIndex = column.length ? column.length - 1 : -1;
+      if (startIndex >= 0) {
+        for (let col = 0; col < s.tableau.length; col++) {
+          if (col === originColumn) continue;
+          if (game.moveTableauToTableau(originColumn, col, startIndex)) {
+            moved = true;
+            break;
+          }
+        }
+      }
+    }
+  }
+  if (!moved) return;
+  e.preventDefault();
+  e.stopPropagation();
+  render();
+  playDropSound();
+  handleWinAfterMove();
 }
 
 function pointerUpCard(e) {
@@ -1163,19 +1241,6 @@ function pointerUpCard(e) {
   window.removeEventListener("mouseup", pointerUpCard);
   if (!dragState) return;
   if (!dragState.isDragging) {
-    for (const el of dragState.movingCards) {
-    el.classList.remove("dragging");
-      el.style.position = el.dataset.dragPrevPosition || "";
-      el.style.left = el.dataset.dragPrevLeft || "";
-      el.style.top = el.dataset.dragPrevTop || "";
-      el.style.transform = el.dataset.dragPrevTransform || "";
-      el.style.pointerEvents = el.dataset.dragPrevPointerEvents || "";
-      delete el.dataset.dragPrevPosition;
-      delete el.dataset.dragPrevLeft;
-      delete el.dataset.dragPrevTop;
-      delete el.dataset.dragPrevTransform;
-      delete el.dataset.dragPrevPointerEvents;
-    }
     clearDropHighlights();
     dragState = null;
     return;
@@ -1198,11 +1263,14 @@ function pointerUpCard(e) {
       }
     }
   }
-  if (!handled) {
+  if (handled) {
+    animateCardGroupDrop(dragState.movingCards, target);
+  } else {
     game.restore(stateBefore);
   }
   for (const el of dragState.movingCards) {
     el.classList.remove("dragging");
+    el.classList.remove("card-group-selected");
     el.style.position = el.dataset.dragPrevPosition || "";
     el.style.left = el.dataset.dragPrevLeft || "";
     el.style.top = el.dataset.dragPrevTop || "";
@@ -1217,35 +1285,24 @@ function pointerUpCard(e) {
   clearDropHighlights();
   dragState = null;
   render();
-  if (autoMoveAllAces()) {
-    render();
-  }
   if (handled) {
     playDropSound();
+  } else if (game.lastErrorCode === "locked_move" && board.messageEl) {
+    board.messageEl.textContent = "Ta karta jest zablokowana i nie może zostać przesunięta.";
+    board.messageEl.classList.add("visible");
+    setTimeout(() => {
+      if (board.messageEl) board.messageEl.classList.remove("visible");
+    }, 1500);
   }
-  if (game.state.won && !hasShownWin) {
-    hasShownWin = true;
-    saveBestScore(game.state.moves, game.state.elapsedMs);
-    if (board.messageEl) {
-      board.messageEl.textContent = "Wygrana!";
-      board.messageEl.classList.add("visible");
-      document.body.classList.add("win-active");
-      setTimeout(() => {
-        board.messageEl.classList.remove("visible");
-        document.body.classList.remove("win-active");
-      }, 3000);
-    }
-  }
+  handleWinAfterMove();
 }
 
 function onStockClick() {
   if (!game) return;
   const moved = game.drawCard();
   if (!moved) return;
+  playDropSound();
   render();
-  if (autoMoveAllAces()) {
-    render();
-  }
 }
 
 function setupBoard() {
@@ -1282,6 +1339,7 @@ function newGame() {
   game.newGame();
   hasShownWin = false;
   document.body.classList.remove("win-active");
+  stopWinAnimations();
   render();
 }
 
@@ -1291,26 +1349,6 @@ function undo() {
 
 function redo() {
   if (game.redo()) render();
-}
-
-function autoComplete() {
-  if (!game) return;
-  try {
-    console.log("Auto: start");
-    const changed = game.autoComplete();
-    console.log("Auto: wynik", { changed });
-    if (changed) {
-      render();
-      if (autoMoveAllAces()) {
-        render();
-      }
-    } else {
-      showTransientMessage("Brak automatycznych ruchów");
-    }
-  } catch (err) {
-    console.error("Auto: błąd", err);
-    showTransientMessage("Błąd przy Auto");
-  }
 }
 
 function assert(cond, msg) {
@@ -1413,74 +1451,30 @@ function runTests() {
     elapsedMs: 0,
     won: false
   };
-  const aceHearts = { id: 10, suit: "hearts", value: 1, faceUp: true };
-  g5.state.waste.push(aceHearts);
-  const movedToFoundation = g5.autoMoveCard(aceHearts.id);
-  assert(movedToFoundation, "autoMoveCard powinno przenieść asa z odrzutów na fundament");
-  assert(g5.state.waste.length === 0 && g5.state.foundations[0].length === 1, "As trafia na fundament");
-  const g6 = new SolitaireGame(() => 0.5);
-  g6.state = {
+  const g9 = new SolitaireGame(() => 0.5);
+  g9.state = {
     deck: [],
     waste: [],
-    foundations: [[{ id: 20, suit: "spades", value: 1, faceUp: true }], [], [], []],
+    foundations: [[], [], [], []],
     tableau: [[], [], [], [], [], [], []],
     moves: 0,
     startTimestamp: 0,
     elapsedMs: 0,
     won: false
   };
-  const twoSpades = { id: 21, suit: "spades", value: 2, faceUp: true };
-  g6.state.tableau[0].push(twoSpades);
-  const autoChanged = g6.autoComplete();
-  assert(autoChanged, "autoComplete powinno wykonać co najmniej jeden ruch");
+  const lockedFrom = { id: 50, suit: "clubs", value: 6, faceUp: true, movable: false, active: true };
+  const lockedTo = { id: 51, suit: "hearts", value: 7, faceUp: true, movable: true, active: true };
+  g9.state.tableau[0].push(lockedFrom);
+  g9.state.tableau[1].push(lockedTo);
+  const lockedMove = g9.moveTableauToTableau(0, 1, 0);
+  assert(!lockedMove, "Zablokowana karta nie powinna móc zostać przeniesiona");
   assert(
-    g6.state.tableau[0].length === 0 && g6.state.foundations[0].length === 2,
-    "Dwójka powinna trafić na fundament"
+    g9.state.tableau[0].length === 1 && g9.state.tableau[1].length === 1,
+    "Przy zablokowanej karcie stan kolumn nie zmienia się"
   );
-  const g7 = new SolitaireGame(() => 0.5);
-  g7.state = {
-    deck: [],
-    waste: [],
-    foundations: [[], [], [], []],
-    tableau: [[], [], [], [], [], [], []],
-    moves: 0,
-    startTimestamp: 0,
-    elapsedMs: 0,
-    won: false
-  };
-  const sixClubs = { id: 30, suit: "clubs", value: 6, faceUp: true };
-  const sevenDiamonds = { id: 31, suit: "diamonds", value: 7, faceUp: true };
-  g7.state.tableau[0].push(sixClubs);
-  g7.state.tableau[1].push(sevenDiamonds);
-  const smartMoved = g7.autoMoveSmart(sixClubs.id);
-  assert(smartMoved, "autoMoveSmart powinno przenieść kartę na poprawną kolumnę");
-  assert(g7.state.tableau[0].length === 0 && g7.state.tableau[1].length === 2, "Karta trafia na docelową kolumnę");
-  const g8 = new SolitaireGame(() => 0.5);
-  g8.state = {
-    deck: [],
-    waste: [],
-    foundations: [[], [], [], []],
-    tableau: [[], [], [], [], [], [], []],
-    moves: 0,
-    startTimestamp: 0,
-    elapsedMs: 0,
-    won: false
-  };
-  const aceSpades = { id: 40, suit: "spades", value: 1, faceUp: true };
-  const aceHearts2 = { id: 41, suit: "hearts", value: 1, faceUp: true };
-  g8.state.waste.push(aceSpades);
-  g8.state.tableau[0].push(aceHearts2);
-  const acesChanged = g8.autoMoveAces();
-  assert(acesChanged, "autoMoveAces powinno przenieść asy na fundamenty");
-  const totalOnFoundations =
-    g8.state.foundations[0].length +
-    g8.state.foundations[1].length +
-    g8.state.foundations[2].length +
-    g8.state.foundations[3].length;
-  assert(totalOnFoundations === 2, "Oba asy powinny zostać przeniesione na fundamenty");
   const ds = { startX: 100, startY: 100 };
   assert(!shouldStartDragDistance(ds, 102, 103), "Mały ruch nie powinien startować drag");
-  assert(shouldStartDragDistance(ds, 110, 110), "Duży ruch powinien startować drag");
+  assert(shouldStartDragDistance(ds, 140, 140), "Duży ruch powinien startować drag");
   const sValid = defaultSettings();
   assert(validateSettings(sValid), "Domyślne ustawienia powinny przejść walidację");
   const sInvalid = { speed: "x", soundEnabled: true, soundVolume: 0.9, ambientEnabled: true, ambientTrack: "3", ambientVolume: 0.4, ambientMuteOnStartup: false };
@@ -1503,7 +1497,6 @@ function bindUi() {
   const btnNew = document.getElementById("btn-new");
   const btnUndo = document.getElementById("btn-undo");
   const btnRedo = document.getElementById("btn-redo");
-  const btnAuto = document.getElementById("btn-auto");
   const btnSoundToggle = document.getElementById("btn-sound-toggle");
   const btnOptions = document.getElementById("btn-options");
   const btnResetBest = document.getElementById("btn-reset-best");
@@ -1524,9 +1517,6 @@ function bindUi() {
   });
   if (btnRedo) btnRedo.addEventListener("click", () => {
     redo();
-  });
-  if (btnAuto) btnAuto.addEventListener("click", () => {
-    autoComplete();
   });
   if (btnSoundToggle) {
     btnSoundToggle.addEventListener("click", () => {
