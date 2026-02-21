@@ -25,7 +25,8 @@ function cloneState(state) {
     moves: state.moves,
     startTimestamp: state.startTimestamp,
     elapsedMs: state.elapsedMs,
-    won: state.won
+    won: state.won,
+    score: state.score
   };
 }
 
@@ -70,7 +71,8 @@ class SolitaireGame {
       moves: 0,
       startTimestamp: Date.now(),
       elapsedMs: 0,
-      won: false
+      won: false,
+      score: 0
     };
     this.undoStack = [];
     this.redoStack = [];
@@ -116,6 +118,12 @@ class SolitaireGame {
     this.undoStack.push(current);
     this.restore(next);
     return true;
+  }
+
+  adjustScore(delta) {
+    const s = this.state;
+    const current = typeof s.score === "number" ? s.score : 0;
+    s.score = current + delta;
   }
 
   canPlaceOnTableau(card, target) {
@@ -169,6 +177,7 @@ class SolitaireGame {
     s.waste.pop();
     foundation.push(card);
     s.moves++;
+    this.adjustScore(10);
     this.checkWin();
     logOperation("move_waste_foundation", { cardId: card.id, foundationIndex });
     return true;
@@ -189,6 +198,7 @@ class SolitaireGame {
     s.waste.pop();
     column.push(card);
     s.moves++;
+    this.adjustScore(5);
     logOperation("move_waste_tableau", { cardId: card.id, columnIndex });
     return true;
   }
@@ -212,6 +222,7 @@ class SolitaireGame {
       column[column.length - 1].faceUp = true;
     }
     s.moves++;
+    this.adjustScore(10);
     this.checkWin();
     logOperation("move_tableau_foundation", { cardId: card.id, columnIndex, foundationIndex });
     return true;
@@ -237,6 +248,7 @@ class SolitaireGame {
     const last = s.tableau[fromColumn][s.tableau[fromColumn].length - 1];
     if (last && !last.faceUp) last.faceUp = true;
     s.moves++;
+    this.adjustScore(5);
     this.checkWin();
     logOperation("move_tableau_tableau", { fromColumn, toColumn, count: moving.length });
     return true;
@@ -249,6 +261,10 @@ class SolitaireGame {
     }
     if (count === 52) {
       this.state.won = true;
+      return;
+    }
+    if (this.hasKingToAceTableauWin()) {
+      this.state.won = true;
     }
   }
 
@@ -256,6 +272,28 @@ class SolitaireGame {
     if (!this.state.startTimestamp) return;
     if (this.state.won) return;
     this.state.elapsedMs = now - this.state.startTimestamp;
+  }
+
+  hasKingToAceTableauWin() {
+    const s = this.state;
+    if (s.deck.length || s.waste.length) return false;
+    for (const f of s.foundations) {
+      if (f.length) return false;
+    }
+    let completeRuns = 0;
+    for (const col of s.tableau) {
+      if (!col.length) continue;
+      if (col.length !== 13) return false;
+      const suit = col[0].suit;
+      for (let i = 0; i < 13; i++) {
+        const c = col[i];
+        if (!c || c.suit !== suit || c.value !== 13 - i) {
+          return false;
+        }
+      }
+      completeRuns++;
+    }
+    return completeRuns === 4;
   }
 }
 
@@ -268,6 +306,7 @@ const board = {
   movesEl: null,
   timeEl: null,
   bestEl: null,
+  scoreEl: null,
   messageEl: null
 };
 
@@ -275,7 +314,7 @@ let game = null;
 let animationFrameId = null;
 
 let dragState = null;
-const CARD_Y_STEP = 44;
+let CARD_Y_STEP = 44;
 let hasShownWin = false;
 let winAnimationOverlay = null;
 let winAnimationTimeoutId = null;
@@ -415,6 +454,17 @@ function handleWinAfterMove() {
     }, 3000);
   }
   startWinAnimations();
+}
+
+function updateCardLayoutForViewport() {
+  if (typeof window === "undefined") return;
+  const h = window.innerHeight || 800;
+  let step = 36;
+  if (h <= 480) step = 18;
+  else if (h <= 640) step = 22;
+  else if (h <= 800) step = 28;
+  else step = 36;
+  CARD_Y_STEP = step;
 }
 
 const SETTINGS_KEY = "pjh_settings_v1";
@@ -910,6 +960,7 @@ function updateHud() {
   const state = game.state;
   if (board.movesEl) board.movesEl.textContent = String(state.moves);
   if (board.timeEl) board.timeEl.textContent = formatTime(state.elapsedMs || 0);
+   if (board.scoreEl) board.scoreEl.textContent = String(typeof state.score === "number" ? state.score : 0);
   const best = loadBestScore();
   if (board.bestEl) {
     if (best) {
@@ -1314,6 +1365,7 @@ function setupBoard() {
   board.movesEl = document.getElementById("hud-moves");
   board.timeEl = document.getElementById("hud-time");
   board.bestEl = document.getElementById("hud-best");
+  board.scoreEl = document.getElementById("hud-score");
   board.messageEl = document.getElementById("hud-message");
   board.stock.addEventListener("click", onStockClick);
   board.root.addEventListener("mousedown", pointerDownCard);
@@ -1329,6 +1381,7 @@ function tickLoop() {
 
 function initSolitaire() {
   game = new SolitaireGame();
+  updateCardLayoutForViewport();
   setupBoard();
   render();
   if (animationFrameId != null) cancelAnimationFrame(animationFrameId);
@@ -1604,6 +1657,12 @@ function main() {
   initSolitaire();
   ensureSoundFab();
   bindUi();
+  if (typeof window !== "undefined") {
+    window.addEventListener("resize", () => {
+      updateCardLayoutForViewport();
+      render();
+    });
+  }
   console.log("Nie zaglądaj tu :p");
   try {
     runTests();
