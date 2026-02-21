@@ -317,7 +317,8 @@ const ambientState = {
   track: "1",
   volume: 0.4,
   muteOnStartup: false,
-  started: false
+  started: false,
+  autoplayBlocked: false
 };
 
 const SETTINGS_KEY = "pjh_settings_v1";
@@ -335,6 +336,7 @@ function defaultSettings() {
 }
 
 let settingsState = defaultSettings();
+let audioContext = null;
 
 function normalizeVolume(volume) {
   const v = Math.min(1, Math.max(0, volume));
@@ -451,6 +453,12 @@ function ensureAmbientAudio() {
     a.loop = true;
     a.preload = "auto";
     a.volume = ambientState.volume;
+    a.addEventListener("error", () => {
+      console.error("Błąd ładowania ambientu", a.error, "src:", a.src);
+    });
+    a.addEventListener("canplaythrough", () => {
+      console.log("Ambient załadowany:", a.src);
+    });
     ambientState.audio = a;
   } catch (err) {
     console.error("Błąd inicjalizacji ambientu", err);
@@ -482,10 +490,20 @@ function startAmbient(fromStartup) {
   try {
     const promise = a.play();
     if (promise && typeof promise.then === "function") {
-      promise.catch(() => {});
+      promise
+        .then(() => {
+          ambientState.started = true;
+          ambientState.autoplayBlocked = false;
+        })
+        .catch(err => {
+          ambientState.autoplayBlocked = true;
+          console.error("Błąd odtwarzania ambientu", err && err.name, err && err.message);
+        });
     }
     ambientState.started = true;
-  } catch {}
+  } catch (err) {
+    console.error("Wyjątek przy odtwarzaniu ambientu", err);
+  }
 }
 
 function setupAmbientAutoplayFallback() {
@@ -910,12 +928,14 @@ function pointerMoveCard(e) {
 
 function pointerDblClickCard(e) {
   if (!game || !board.root) return;
-  if (dragState && dragState.isDragging) return;
   const target = e.target.closest(".card.face-up");
   if (!target) return;
   const cardId = parseInt(target.dataset.id, 10);
   if (!Number.isFinite(cardId)) return;
-  const moved = game.autoMoveCard(cardId);
+  let moved = game.autoMoveCard(cardId);
+  if (!moved) {
+    moved = game.autoComplete();
+  }
   if (moved) {
     playDropSound();
     render();
@@ -1050,7 +1070,17 @@ function redo() {
 }
 
 function autoComplete() {
-  if (game.autoComplete()) render();
+  let changed = false;
+  while (true) {
+    const movedToFoundation = game.autoComplete();
+    let drew = false;
+    if (!movedToFoundation) {
+      drew = game.drawCard();
+    }
+    if (!movedToFoundation && !drew) break;
+    changed = true;
+  }
+  if (changed) render();
 }
 
 function assert(cond, msg) {
@@ -1142,7 +1172,24 @@ function runTests() {
     g4.state.tableau[0].length === 1 && g4.state.tableau[1].length === 0,
     "Król trafia na pustą kolumnę"
   );
-  console.log("Testy PJH Solitaire: OK");
+  const sValid = defaultSettings();
+  assert(validateSettings(sValid), "Domyślne ustawienia powinny przejść walidację");
+  const sInvalid = { speed: "x", soundEnabled: true, soundVolume: 0.9, ambientEnabled: true, ambientTrack: "3", ambientVolume: 0.4, ambientMuteOnStartup: false };
+  assert(!validateSettings(sInvalid), "Nieprawidłowe ustawienia nie powinny przechodzić walidacji");
+  settingsState = defaultSettings();
+  settingsState.ambientEnabled = true;
+  settingsState.ambientTrack = "1";
+  settingsState.ambientVolume = 0.1;
+  saveSettings();
+  const before = settingsState;
+  loadSettings();
+  assert(validateSettings(settingsState), "Ustawienia po loadSettings powinny być poprawne");
+  assert(settingsState.ambientTrack === before.ambientTrack, "Ścieżka ambient powinna zostać przywrócona");
+  assert(
+    Math.abs(settingsState.ambientVolume - before.ambientVolume) < 1e-6,
+    "Głośność ambient powinna zostać przywrócona"
+  );
+  console.log("Nie zaglądaj tu :p");
 }
 function bindUi() {
   const btnNew = document.getElementById("btn-new");
